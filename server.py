@@ -30,6 +30,10 @@ class cron(cherrypy.process.plugins.SimplePlugin):
         for action in ('restart','backup','archive'):
             for server in mc.list_servers_to_act(action, self.base_directory):
                 crons.append( (action, server) )
+                
+        for action in ('backups_keep', 'archives_keep'):
+            for server in mc.list_servers_to_prune(action, self.base_directory):
+                crons.append( (action, server) )
 
         for server in set(s for a,s in crons):
             path_ = os.path.join(self.base_directory, mc.DEFAULT_PATHS['servers'], server)
@@ -62,6 +66,21 @@ class cron(cherrypy.process.plugins.SimplePlugin):
                 cherrypy.log('[%s] %s (Server Up: %s)' % (server, action, instance.up))
                 try:
                     getattr(instance, action)()
+                except CalledProcessError as e:
+                    cherrypy.log('[%s] %s exception: returncode %s' % (server, action, e.returncode))
+                    cherrypy.log(e.output)
+                except RuntimeError:
+                    cherrypy.log('[%s] %s exception: server state changed since beginning of %s.' % (server, action, action))
+                    cherrypy.log('[%s] %s (Server Up: %s)' % (server, action, instance.up))
+                    cherrypy.log('You may need to increase mineos.conf => server.commit_delay')
+                else:
+                    cherrypy.log('[%s] %s return code reports success; sleeping 3sec' % (server, action))
+                    sleep(3)
+            elif action in ('backups_keep', 'archives_keep'):
+                param = instance.server_config.getint('crontabs', action)
+                cherrypy.log('[%s] %s %s (Server Up: %s)' % (server, action, param, instance.up))
+                try:
+                    getattr(instance, action)(param)
                 except CalledProcessError as e:
                     cherrypy.log('[%s] %s exception: returncode %s' % (server, action, e.returncode))
                     cherrypy.log(e.output)

@@ -267,6 +267,8 @@ class mc(object):
                 'archive_interval': '',
                 'backup_interval': '',
                 'restart_interval': '',
+                'backups_keep': '',
+                'archives_keep': '',
                 },
             'onreboot': {
                 'restore': False,
@@ -415,6 +417,20 @@ class mc(object):
             self._command_stuff('save-on')
         else:
             self._command_direct(self.command_backup, self.env['cwd'])
+
+    @server_exists(True)
+    def archives_keep(self, filesToKeep):
+        """Removes old archives leaving number of filesToKeep. Filename is list as a space-separated string."""
+        archives = sorted([dict(d._asdict()) for d in self.list_archives()], key=lambda x: x['timestamp'])
+        archives = archives[:-filesToKeep]
+        filename = " ".join( [arch['filename'] for arch in archives] )
+        if filename:
+            self._command_direct(self.command_delete_files(filename), self.env['awd'])
+
+    @server_exists(True)
+    def backups_keep(self, filesToKeep):
+        """Keep number of server backups and prune by rdiff-backup rest."""
+        self._command_direct(self.command_prune(filesToKeep), self.env['bwd'])
 
     @server_exists(True)
     @server_up(False)
@@ -1450,6 +1466,32 @@ class mc(object):
                 if msm == 0:
                     hits.append(i)
                 elif msm % interval == 0:
+                    hits.append(i)
+            except Exception:
+                '''(ZeroDivisionError, KeyError, ValueError, NoOptionError, NoSectionError, OSError)'''
+                continue
+
+        return hits
+        
+    @classmethod
+    def list_servers_to_prune(cls, action, base_directory):
+        """Generator listing all servers doing action at this minute in time"""
+        from procfs_reader import path_owner
+
+        hits = []
+        msm = cls.minutes_since_midnight()
+
+        section_option = ('crontabs', action)
+
+        for i in cls.list_servers(base_directory):
+            try:
+                path_ = os.path.join(base_directory, cls.DEFAULT_PATHS['servers'], i)
+                owner_ = path_owner(path_)
+                instance = cls(i, owner_, base_directory)
+            
+                param = instance.server_config.getint(section_option[0],section_option[1])
+                '''msm == 0; at midnight, always trigger.'''
+                if (msm == 0 and param > 0):
                     hits.append(i)
             except Exception:
                 '''(ZeroDivisionError, KeyError, ValueError, NoOptionError, NoSectionError, OSError)'''
